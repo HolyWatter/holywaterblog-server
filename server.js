@@ -11,7 +11,6 @@ const typeDefs = gql`
   type Query {
     User: [User]
   }
-
   type Mutation {
     addUser(user_name: String): User
     editUser(id: Int!, user_name: String): User
