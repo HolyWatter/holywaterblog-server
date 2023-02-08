@@ -12,6 +12,28 @@ datasource db {
 
 //만드려는 모델
 model User {
-  id Int @default(autoincrement()) @id
+  id Int @default(autoincrement()) @id @unique
+  password String
   user_name String
+  email String @unique
+  nickname String @unique
+  posts Posting[]
+}
+
+model Posting {
+  id Int @default(autoincrement()) @id @unique
+  title String
+  text String
+  img String?
+  created String
+  author User? @relation(fields: [user_id] , references: [id])
+  user_id Int
+}
+//DateTime @default(now()) 이런기능이 있으니,, 적용해 볼것...
+
+model Comment {
+  id Int @default(autoincrement()) @id @unique
+  text String
+  Posting_id Int
+  user_id Int
 }
