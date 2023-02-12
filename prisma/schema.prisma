@@ -12,28 +12,60 @@ datasource db {
 
 //만드려는 모델
 model User {
-  id Int @default(autoincrement()) @id @unique
-  password String
-  user_name String
-  email String @unique
-  nickname String @unique
-  posts Posting[]
+  id              Int               @id @unique @default(autoincrement())
+  password        String
+  user_name       String
+  email           String            @unique
+  nickname        String            @unique
+  posts           Posting[]
+  markdwon        Markdown[]
+  Comment         PostingComment[]
+  MarkdownComment MarkdownComment[]
+}
+
+model PostingTags {
+  id        Int      @unique @default(autoincrement())
+  tag       String
+  Posting   Posting? @relation(fields: [postingId], references: [id])
+  postingId Int?
 }
 
 model Posting {
-  id Int @default(autoincrement()) @id @unique
-  title String
-  text String
-  img String?
-  created String
-  author User? @relation(fields: [user_id] , references: [id])
-  user_id Int
+  id       Int              @id @unique @default(autoincrement())
+  title    String
+  text     String
+  tag      PostingTags[]
+  img      String?
+  created  String
+  comments PostingComment[]
+  author   User?            @relation(fields: [user_id], references: [id])
+  user_id  Int
 }
-//DateTime @default(now()) 이런기능이 있으니,, 적용해 볼것...
 
-model Comment {
-  id Int @default(autoincrement()) @id @unique
-  text String
-  Posting_id Int
-  user_id Int
+model Markdown {
+  id       Int               @id @unique @default(autoincrement())
+  title    String
+  text     String
+  created  String
+  comments MarkdownComment[]
+  author   User?             @relation(fields: [user_id], references: [id])
+  user_id  Int
+}
+
+model PostingComment {
+  id        Int      @id @unique @default(autoincrement())
+  text      String
+  user_id   Int
+  writer    User?    @relation(fields: [user_id], references: [id])
+  Posting   Posting? @relation(fields: [postingId], references: [id])
+  postingId Int?
+}
+
+model MarkdownComment {
+  id         Int       @id @unique @default(autoincrement())
+  text       String
+  user_id    Int
+  writer     User?     @relation(fields: [user_id], references: [id])
+  Markdown   Markdown? @relation(fields: [markdownId], references: [id])
+  markdownId Int?
 }
