@@ -17,6 +17,7 @@ const getUser = (token) => {
 };
 
 const typeDefs = gql`
+  scalar DateTime
   type Auth {
     token: String
     loginUser: User
@@ -30,19 +31,38 @@ const typeDefs = gql`
     nickname: String!
   }
 
-  type Posting {
+  type Comment {
     id: Int
+    text: String!
+    postingId: Int!
+    user_id: Int
+    writer: User
+  }
+
+  type Tags {
+    id: Int
+    tag: String!
+    postingId: Int
+  }
+
+  type Posting {
+    id: Int!
     title: String!
     text: String!
-    img: String
-    created: String
-    user_id: Int
+    img: [String]
+    tag: [Tags]
+    created: DateTime!
+    user_id: Int!
+    comments: [Comment]
+    author: User!
   }
 
   type Query {
     User: [User]
     AllPosting: [Posting!]!
     currentUser: User
+    allMarkdown: [Posting!]!
+    markdownDetail(id: Int!): Posting
   }
 
   type Mutation {
@@ -56,14 +76,31 @@ const typeDefs = gql`
 
     login(email: String!, password: String!): Auth
 
+    addTags(tag: [String!]): [Tags]!
+
     addPosting(
       title: String!
       id: Int
       text: String!
-      created: String
+      created: DateTime
+      tag: [String]
       img: [String]
       user_id: Int
     ): Posting!
+
+    addMarkdown(
+      title: String!
+      id: Int
+      text: String!
+      created: DateTime
+      tag: [String]
+      img: [String]
+      user_id: Int
+    ): Posting!
+
+    addPostingComment(text: String!, postingId: Int!, user_id: Int): Comment
+
+    addMarkdownComment(text: String!, markdownId: Int!, user_id: Int): Comment
 
     deletePosting(id: Int!): Posting
   }
@@ -74,14 +111,50 @@ const resolvers = {
     User: (_parent, _args) => {
       return client.User.findMany();
     },
-    AllPosting: (_parent, _args, _ctx) => {
-      return client.posting.findMany();
+    markdownDetail: (_parent, { id }, _ctx) => {
+      return client.Markdown.findUnique({
+        where: {
+          id: id,
+        },
+        include: {
+          author: true,
+          comments: true,
+        },
+      });
     },
-    currentUser: (_parent, _args) => {
+    allMarkdown: () => {
+      return client.Markdown.findMany({
+        include: {
+          author: true,
+          comments: true,
+        },
+        orderBy: {
+          created: "desc",
+        },
+      });
+    },
+    AllPosting: (_parent, _args, _ctx) => {
+      return client.posting.findMany({
+        include: {
+          author: true,
+          comments: {
+            select: {
+              id: true,
+              text: true,
+              writer: true,
+            },
+          },
+        },
+        orderBy: {
+          created: "desc",
+        },
+      });
+    },
+    currentUser: async (_parent, _args, { user }) => {
       if (!user) {
         throw new Error("유저정보가 없습니다.");
       }
-      return client.User.findUnique({ where: { email: user.email } });
+      return await client.User.findUnique({ where: { email: user.email } });
     },
   },
   Mutation: {
@@ -99,10 +172,14 @@ const resolvers = {
       });
       if (!loginUser) {
         throw new Error("등록되지 않은 이메일입니다.");
-      }
-      const passwordMatch = await bcrypt.compare(password, loginUser.password);
-      if (!passwordMatch) {
-        throw new Error("비밀번호가 일치하지 않습니다.");
+      } else {
+        const passwordMatch = await bcrypt.compare(
+          password,
+          loginUser.password
+        );
+        if (!passwordMatch) {
+          throw new Error("비밀번호가 일치하지 않습니다.");
+        }
       }
       const token = jwt.sign(
         {
@@ -113,17 +190,43 @@ const resolvers = {
       );
       return { token, loginUser };
     },
-    addPosting: async (_parent, { title, text, img }, { currentUser }) => {
+    addPosting: async (_, { title, text, img, tag }, { currentUser }) => {
       if (!currentUser) {
         throw new Error("유저정보가 없습니다.");
       }
-      const date = Date().toString();
-      return client.Posting.create({
+      const date = new Date();
+      let posting = await client.Posting.create({
         data: {
           title,
           text,
           created: date,
           img: img || null,
+          user_id: currentUser.id,
+        },
+      });
+      return posting;
+    },
+    addTags: async (_, { tag, id }, { currentUser }) => {
+      if (!currentUser) {
+        throw new Error("유저정보가 없습니다.");
+      }
+      let tags = await tag.map((item) =>
+        client.Tags.create({ data: { tag: item, postingId: id } })
+      );
+      return tags;
+    },
+    addPostingComment: async (
+      _parent,
+      { text, postingId },
+      { currentUser }
+    ) => {
+      if (!currentUser) {
+        throw new Error("유저정보가 없습니다.");
+      }
+      return client.PostingComment.create({
+        data: {
+          text,
+          postingId,
           user_id: currentUser.id,
         },
       });
@@ -138,6 +241,36 @@ const resolvers = {
       }
       await client.Posting.delete({ where: { id } });
     },
+    addMarkdown: (_parent, { title, text }, { currentUser }) => {
+      if (!currentUser) {
+        throw new Error("유저정보가 없습니다.");
+      }
+      const date = new Date();
+      return client.Markdown.create({
+        data: {
+          title,
+          text,
+          created: date,
+          user_id: currentUser.id,
+        },
+      });
+    },
+    addMarkdownComment: async (
+      _parent,
+      { text, markdownId },
+      { currentUser }
+    ) => {
+      if (!currentUser) {
+        throw new Error("유저정보가 없습니다.");
+      }
+      return client.MarkdownComment.create({
+        data: {
+          text,
+          markdownId,
+          user_id: currentUser.id,
+        },
+      });
+    },
   },
 };
 
@@ -149,10 +282,9 @@ const server = new ApolloServer({
     const user = getUser(token);
     let currentUser;
     if (token !== "") {
-      await client.User.findUnique({
+      currentUser = await client.User.findUnique({
         where: { email: user.email },
       });
-      return currentUser;
     }
     return { user, currentUser };
   },
