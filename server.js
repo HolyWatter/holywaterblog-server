@@ -1,14 +1,23 @@
-import { ApolloServer, gql } from "apollo-server";
+import { ApolloServer } from "apollo-server";
 import { PrismaClient } from "@prisma/client";
+import AWS from "aws-sdk";
 import jwt from "jsonwebtoken";
+import { gql } from "apollo-server";
 import bcrypt from "bcrypt";
 
 const client = new PrismaClient();
 
-const getUser = (token) => {
+AWS.config.update({
+  credentials: {
+    accessKeyId: process.env.S3_ACCESSKEY,
+    secretAccessKey: process.env.S3_SECRETKEY,
+  },
+});
+
+const checkToken = (acessToken) => {
   try {
-    if (token) {
-      return jwt.verify(token, process.env.SECRET_KEY);
+    if (acessToken) {
+      return jwt.verify(acessToken, process.env.SECRET_KEY);
     }
     return null;
   } catch (err) {
@@ -18,8 +27,10 @@ const getUser = (token) => {
 
 const typeDefs = gql`
   scalar DateTime
+  scalar Upload
+
   type Auth {
-    token: String
+    acessToken: String
     loginUser: User
   }
 
@@ -29,6 +40,7 @@ const typeDefs = gql`
     email: String!
     password: String!
     nickname: String!
+    role: String!
   }
 
   type Comment {
@@ -45,11 +57,17 @@ const typeDefs = gql`
     postingId: Int
   }
 
+  type MarkdownTag {
+    id: Int
+    tag: String
+    markdownId: Int
+  }
+
   type Posting {
     id: Int!
     title: String!
     text: String!
-    img: [String]
+    img: [PostingImg]
     tag: [Tags]
     created: DateTime!
     user_id: Int!
@@ -57,12 +75,29 @@ const typeDefs = gql`
     author: User!
   }
 
+  type Markdown {
+    id: Int!
+    title: String!
+    text: String!
+    MarkdownImg: [PostingImg]
+    MarkdownTag: [MarkdownTag]
+    created: DateTime!
+    user_id: Int!
+    comments: [Comment]
+    author: User!
+  }
+
+  type PostingImg {
+    id: Int
+    location: String
+  }
+
   type Query {
     User: [User]
     AllPosting: [Posting!]!
     currentUser: User
     allMarkdown: [Posting!]!
-    markdownDetail(id: Int!): Posting
+    markdownDetail(id: Int!): Markdown
   }
 
   type Mutation {
@@ -84,7 +119,7 @@ const typeDefs = gql`
       text: String!
       created: DateTime
       tag: [String]
-      img: [String]
+      img: [Upload]
       user_id: Int
     ): Posting!
 
@@ -94,15 +129,21 @@ const typeDefs = gql`
       text: String!
       created: DateTime
       tag: [String]
-      img: [String]
+      img: [Upload]
       user_id: Int
-    ): Posting!
+    ): Markdown!
 
     addPostingComment(text: String!, postingId: Int!, user_id: Int): Comment
 
     addMarkdownComment(text: String!, markdownId: Int!, user_id: Int): Comment
 
     deletePosting(id: Int!): Posting
+
+    uploadTest(file: [Upload]!): Images
+  }
+  type Images {
+    id: Int
+    location: String
   }
 `;
 
@@ -118,7 +159,13 @@ const resolvers = {
         },
         include: {
           author: true,
-          comments: true,
+          MarkdownTag: true,
+          MarkdownImg: true,
+          comments: {
+            include: {
+              writer: true,
+            },
+          },
         },
       });
     },
@@ -137,6 +184,8 @@ const resolvers = {
       return client.posting.findMany({
         include: {
           author: true,
+          img: true,
+          tag: true,
           comments: {
             select: {
               id: true,
@@ -181,39 +230,71 @@ const resolvers = {
           throw new Error("비밀번호가 일치하지 않습니다.");
         }
       }
-      const token = jwt.sign(
+      const acessToken = jwt.sign(
         {
           email: loginUser.email,
           password: loginUser.password,
         },
-        process.env.SECRET_KEY
+        process.env.SECRET_KEY,
+        {
+          expiresIn: "2h",
+        }
       );
-      return { token, loginUser };
+      const refreshToken = jwt.sign({}, process.env.SECRET_KEY, {
+        expiresIn: "14d",
+      });
+      await client.User.update({
+        where: {
+          email,
+        },
+        data: {
+          refreshToken,
+        },
+      });
+      return { acessToken, loginUser, refreshToken };
     },
     addPosting: async (_, { title, text, img, tag }, { currentUser }) => {
       if (!currentUser) {
         throw new Error("유저정보가 없습니다.");
       }
-      const date = new Date();
       let posting = await client.Posting.create({
         data: {
           title,
           text,
-          created: date,
-          img: img || null,
+          created: new Date(),
           user_id: currentUser.id,
         },
       });
-      return posting;
-    },
-    addTags: async (_, { tag, id }, { currentUser }) => {
-      if (!currentUser) {
-        throw new Error("유저정보가 없습니다.");
-      }
-      let tags = await tag.map((item) =>
-        client.Tags.create({ data: { tag: item, postingId: id } })
+      img?.map(async (element) => {
+        const key = `${Date.now()}`;
+        await new AWS.S3()
+          .putObject({
+            Body: Buffer.from(
+              element.replace(/^data:image\/\w+;base64,/, ""),
+              "base64"
+            ),
+            Bucket: "holywater-blog",
+            Key: key,
+            ACL: "public-read",
+          })
+          .promise();
+        await client.PostingImg.create({
+          data: {
+            postingId: posting.id,
+            location: `https://holywater-blog.s3.ap-northeast-1.amazonaws.com/${key}`,
+          },
+        });
+      });
+      tag.map(
+        async (item) =>
+          await client.postingTags.create({
+            data: {
+              tag: item,
+              postingId: posting.id,
+            },
+          })
       );
-      return tags;
+      return posting;
     },
     addPostingComment: async (
       _parent,
@@ -241,19 +322,52 @@ const resolvers = {
       }
       await client.Posting.delete({ where: { id } });
     },
-    addMarkdown: (_parent, { title, text }, { currentUser }) => {
+    addMarkdown: async (
+      _parent,
+      { title, text, tag, img },
+      { currentUser }
+    ) => {
       if (!currentUser) {
         throw new Error("유저정보가 없습니다.");
       }
-      const date = new Date();
-      return client.Markdown.create({
+      const markdown = await client.Markdown.create({
         data: {
           title,
           text,
-          created: date,
+          created: new Date(),
           user_id: currentUser.id,
         },
       });
+      img?.map(async (element) => {
+        const key = `${Date.now()}`;
+        await new AWS.S3()
+          .putObject({
+            Body: Buffer.from(
+              element.replace(/^data:image\/\w+;base64,/, ""),
+              "base64"
+            ),
+            Bucket: "holywater-blog",
+            Key: key,
+            ACL: "public-read",
+          })
+          .promise();
+        await client.MarkdownImg.create({
+          data: {
+            MarkdownId: markdown.id,
+            location: `https://holywater-blog.s3.ap-northeast-1.amazonaws.com/${key}`,
+          },
+        });
+      });
+      tag.map(
+        async (item) =>
+          await client.MarkdownTag.create({
+            data: {
+              tag: item,
+              markdownId: markdown.id,
+            },
+          })
+      );
+      return markdown;
     },
     addMarkdownComment: async (
       _parent,
@@ -279,9 +393,10 @@ const server = new ApolloServer({
   resolvers,
   context: async ({ req }) => {
     const token = req.headers.authorization || "";
-    const user = getUser(token);
+    const user = checkToken(token);
     let currentUser;
-    if (token !== "") {
+
+    if (token) {
       currentUser = await client.User.findUnique({
         where: { email: user.email },
       });
