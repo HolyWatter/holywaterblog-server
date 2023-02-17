@@ -11,16 +11,19 @@ datasource db {
 }
 
 //만드려는 모델
+
 model User {
   id              Int               @id @unique @default(autoincrement())
   password        String
   user_name       String
   email           String            @unique
   nickname        String            @unique
+  refreshToken    String?           @unique
   posts           Posting[]
   markdwon        Markdown[]
   Comment         PostingComment[]
   MarkdownComment MarkdownComment[]
+  role            String            @default("visitor")
 }
 
 model PostingTags {
@@ -30,26 +33,49 @@ model PostingTags {
   postingId Int?
 }
 
+model MarkdownTag {
+  id         Int       @unique @default(autoincrement())
+  tag        String
+  Markdown   Markdown? @relation(fields: [markdownId], references: [id])
+  markdownId Int?
+}
+
 model Posting {
   id       Int              @id @unique @default(autoincrement())
   title    String
   text     String
   tag      PostingTags[]
-  img      String?
+  img      PostingImg[]
   created  String
   comments PostingComment[]
   author   User?            @relation(fields: [user_id], references: [id])
   user_id  Int
 }
 
+model PostingImg {
+  id        Int      @id @unique @default(autoincrement())
+  location  String   @unique
+  Posting   Posting? @relation(fields: [postingId], references: [id])
+  postingId Int?
+}
+
+model MarkdownImg {
+  id         Int       @id @unique @default(autoincrement())
+  location   String    @unique
+  Markdown   Markdown? @relation(fields: [MarkdownId], references: [id])
+  MarkdownId Int?
+}
+
 model Markdown {
-  id       Int               @id @unique @default(autoincrement())
-  title    String
-  text     String
-  created  String
-  comments MarkdownComment[]
-  author   User?             @relation(fields: [user_id], references: [id])
-  user_id  Int
+  id          Int               @id @unique @default(autoincrement())
+  title       String
+  text        String
+  created     String
+  comments    MarkdownComment[]
+  author      User?             @relation(fields: [user_id], references: [id])
+  user_id     Int
+  MarkdownTag MarkdownTag[]
+  MarkdownImg MarkdownImg[]
 }
 
 model PostingComment {
