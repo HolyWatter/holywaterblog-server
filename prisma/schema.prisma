@@ -16,6 +16,7 @@ model User {
   id              Int               @id @unique @default(autoincrement())
   password        String
   user_name       String
+  thumbnail_url   String            @default("https://holywater-blog.s3.ap-northeast-1.amazonaws.com/userProfile.png")
   email           String            @unique
   nickname        String            @unique
   refreshToken    String?           @unique
