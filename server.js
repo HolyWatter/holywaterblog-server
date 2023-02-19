@@ -17,9 +17,9 @@ AWS.config.update({
 const checkToken = (acessToken) => {
   try {
     if (acessToken) {
-      return jwt.verify(acessToken, process.env.SECRET_KEY);
-    }
-    return null;
+      const token = jwt.verify(acessToken, process.env.SECRET_KEY);
+      return token;
+    } else return null;
   } catch (err) {
     return null;
   }
@@ -32,11 +32,13 @@ const typeDefs = gql`
   type Auth {
     acessToken: String
     loginUser: User
+    message: String
   }
 
   type User {
     id: Int!
     user_name: String!
+    thumbnail_url: String
     email: String!
     password: String!
     nickname: String!
@@ -95,7 +97,7 @@ const typeDefs = gql`
   type Query {
     User: [User]
     AllPosting: [Posting!]!
-    currentUser: User
+    currentUser: User!
     allMarkdown: [Posting!]!
     markdownDetail(id: Int!): Markdown
   }
@@ -107,6 +109,7 @@ const typeDefs = gql`
       email: String!
       password: String!
       nickname: String!
+      thumbnail: Upload
     ): User
 
     login(email: String!, password: String!): Auth
@@ -199,18 +202,42 @@ const resolvers = {
         },
       });
     },
-    currentUser: async (_parent, _args, { user }) => {
-      if (!user) {
+    currentUser: async (_parent, _args, { currentUser }) => {
+      if (currentUser) {
+        return currentUser;
+      } else {
         throw new Error("유저정보가 없습니다.");
       }
-      return await client.User.findUnique({ where: { email: user.email } });
     },
   },
   Mutation: {
-    signup: async (_parent, { email, password, nickname, user_name }, _ctx) => {
+    signup: async (
+      _parent,
+      { email, password, nickname, user_name, thumbnail },
+      _ctx
+    ) => {
       const hashPassword = await bcrypt.hash(password, 12);
+      const key = `${Date.now()}`;
+      await new AWS.S3()
+        .putObject({
+          Body: Buffer.from(
+            thumbnail.replace(/^data:image\/\w+;base64,/, ""),
+            "base64"
+          ),
+          Bucket: "holywater-blog",
+          Key: key,
+          ACL: "public-read",
+        })
+        .promise();
+
       await client.User.create({
-        data: { email, nickname, user_name, password: hashPassword },
+        data: {
+          email,
+          nickname,
+          user_name,
+          password: hashPassword,
+          thumbnail_url: `https://holywater-blog.s3.ap-northeast-1.amazonaws.com/${key}`,
+        },
       });
     },
     login: async (_parent, { email, password }, _ctx) => {
@@ -240,6 +267,7 @@ const resolvers = {
           expiresIn: "2h",
         }
       );
+      const message = "로그인되었습니다.";
       const refreshToken = jwt.sign({}, process.env.SECRET_KEY, {
         expiresIn: "14d",
       });
@@ -251,7 +279,7 @@ const resolvers = {
           refreshToken,
         },
       });
-      return { acessToken, loginUser, refreshToken };
+      return { acessToken, loginUser, refreshToken, message };
     },
     addPosting: async (_, { title, text, img, tag }, { currentUser }) => {
       if (!currentUser) {
@@ -395,7 +423,6 @@ const server = new ApolloServer({
     const token = req.headers.authorization || "";
     const user = checkToken(token);
     let currentUser;
-
     if (token) {
       currentUser = await client.User.findUnique({
         where: { email: user.email },
