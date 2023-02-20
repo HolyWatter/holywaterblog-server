@@ -43,12 +43,33 @@ const typeDefs = gql`
     password: String!
     nickname: String!
     role: String!
+    GuestBook: [GuestBook]
+    Comment: [PostingComment]
+    MarkdownComment: [MarkdownComment]
+    markdown: [Markdown]
+    posts: [Posting]
   }
 
-  type Comment {
+  type GuestBook {
+    id: Int
+    user_id: Int
+    text: String!
+    created: DateTime
+    writer: User
+  }
+
+  type PostingComment {
     id: Int
     text: String!
     postingId: Int!
+    user_id: Int
+    writer: User
+  }
+
+  type MarkdownComment {
+    id: Int
+    text: String!
+    markdownId: Int!
     user_id: Int
     writer: User
   }
@@ -73,7 +94,7 @@ const typeDefs = gql`
     tag: [Tags]
     created: DateTime!
     user_id: Int!
-    comments: [Comment]
+    comments: [PostingComment]
     author: User!
   }
 
@@ -85,7 +106,7 @@ const typeDefs = gql`
     MarkdownTag: [MarkdownTag]
     created: DateTime!
     user_id: Int!
-    comments: [Comment]
+    comments: [MarkdownComment]
     author: User!
   }
 
@@ -100,6 +121,8 @@ const typeDefs = gql`
     currentUser: User!
     allMarkdown: [Posting!]!
     markdownDetail(id: Int!): Markdown
+    allGuestBook: [GuestBook]
+    myPage: User
   }
 
   type Mutation {
@@ -111,11 +134,11 @@ const typeDefs = gql`
       nickname: String!
       thumbnail: Upload
     ): User
-
+    writeGuestBook(text: String, user_id: Int): GuestBook
     login(email: String!, password: String!): Auth
-
     addTags(tag: [String!]): [Tags]!
-
+    modifyProfileImg(img: Upload): User
+    deleteUserInfo(email: String!): User
     addPosting(
       title: String!
       id: Int
@@ -136,9 +159,17 @@ const typeDefs = gql`
       user_id: Int
     ): Markdown!
 
-    addPostingComment(text: String!, postingId: Int!, user_id: Int): Comment
+    addPostingComment(
+      text: String!
+      postingId: Int!
+      user_id: Int
+    ): PostingComment
 
-    addMarkdownComment(text: String!, markdownId: Int!, user_id: Int): Comment
+    addMarkdownComment(
+      text: String!
+      markdownId: Int!
+      user_id: Int
+    ): MarkdownComment
 
     deletePosting(id: Int!): Posting
 
@@ -152,6 +183,20 @@ const typeDefs = gql`
 
 const resolvers = {
   Query: {
+    myPage: (_parent, _arg, { currentUser }) => {
+      return client.User.findUnique({
+        where: {
+          id: currentUser.id,
+        },
+        include: {
+          Comment: true,
+          MarkdownComment: true,
+          GuestBook: true,
+          markdown: true,
+          posts: true,
+        },
+      });
+    },
     User: (_parent, _args) => {
       return client.User.findMany();
     },
@@ -202,6 +247,16 @@ const resolvers = {
         },
       });
     },
+    allGuestBook: (_parent, _args, _ctx) => {
+      return client.GuestBook.findMany({
+        include: {
+          writer: true,
+        },
+        orderBy: {
+          created: "desc",
+        },
+      });
+    },
     currentUser: async (_parent, _args, { currentUser }) => {
       if (currentUser) {
         return currentUser;
@@ -211,6 +266,35 @@ const resolvers = {
     },
   },
   Mutation: {
+    deleteUserInfo: async (_parent, { email }, { currentUser }) => {
+      if (currentUser.email !== email) {
+        throw new Error("입력하신 정보가 맞지 않습니다.");
+      }
+      if (currentUser.email === email) {
+        console.log(currentUser)
+        await client.User.delete({ where: { id : currentUser.id } });
+      }
+    },
+    modifyProfileImg: async (_parent, { img }, { currentUser }) => {
+      const key = `${Date.now()}`;
+      await new AWS.S3()
+        .putObject({
+          Body: Buffer.from(
+            img.replace(/^data:image\/\w+;base64,/, ""),
+            "base64"
+          ),
+          Bucket: "holywater-blog",
+          Key: key,
+          ACL: "public-read",
+        })
+        .promise();
+      await client.User.update({
+        where: { id: currentUser.id },
+        data: {
+          thumbnail_url: `https://holywater-blog.s3.ap-northeast-1.amazonaws.com/${key}`,
+        },
+      });
+    },
     signup: async (
       _parent,
       { email, password, nickname, user_name, thumbnail },
@@ -268,18 +352,21 @@ const resolvers = {
         }
       );
       const message = "로그인되었습니다.";
-      const refreshToken = jwt.sign({}, process.env.SECRET_KEY, {
-        expiresIn: "14d",
-      });
-      await client.User.update({
-        where: {
-          email,
-        },
+
+      return { acessToken, loginUser, message };
+    },
+    writeGuestBook: async (_parent, { text }, { currentUser }) => {
+      if (!currentUser) {
+        throw new Error("유저 정보가 없습니다.");
+      }
+      const guestBook = await client.GuestBook.create({
         data: {
-          refreshToken,
+          text,
+          user_id: currentUser.id,
+          created: new Date(),
         },
       });
-      return { acessToken, loginUser, refreshToken, message };
+      return guestBook;
     },
     addPosting: async (_, { title, text, img, tag }, { currentUser }) => {
       if (!currentUser) {

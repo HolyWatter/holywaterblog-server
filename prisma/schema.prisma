@@ -20,23 +20,24 @@ model User {
   email           String            @unique
   nickname        String            @unique
   posts           Posting[]
-  markdwon        Markdown[]
+  markdown        Markdown[]
   Comment         PostingComment[]
   MarkdownComment MarkdownComment[]
   role            String            @default("visitor")
+  GuestBook       GuestBook[]
 }
 
 model PostingTags {
   id        Int      @unique @default(autoincrement())
   tag       String
-  Posting   Posting? @relation(fields: [postingId], references: [id])
+  Posting   Posting? @relation(fields: [postingId], references: [id], onDelete: Cascade)
   postingId Int?
 }
 
 model MarkdownTag {
   id         Int       @unique @default(autoincrement())
   tag        String
-  Markdown   Markdown? @relation(fields: [markdownId], references: [id])
+  Markdown   Markdown? @relation(fields: [markdownId], references: [id], onDelete: Cascade)
   markdownId Int?
 }
 
@@ -48,21 +49,21 @@ model Posting {
   img      PostingImg[]
   created  String
   comments PostingComment[]
-  author   User?            @relation(fields: [user_id], references: [id])
+  author   User?            @relation(fields: [user_id], references: [id], onDelete: Cascade)
   user_id  Int
 }
 
 model PostingImg {
   id        Int      @id @unique @default(autoincrement())
   location  String   @unique
-  Posting   Posting? @relation(fields: [postingId], references: [id])
+  Posting   Posting? @relation(fields: [postingId], references: [id], onDelete: Cascade)
   postingId Int?
 }
 
 model MarkdownImg {
   id         Int       @id @unique @default(autoincrement())
   location   String    @unique
-  Markdown   Markdown? @relation(fields: [MarkdownId], references: [id])
+  Markdown   Markdown? @relation(fields: [MarkdownId], references: [id], onDelete: Cascade)
   MarkdownId Int?
 }
 
@@ -72,7 +73,7 @@ model Markdown {
   text        String
   created     String
   comments    MarkdownComment[]
-  author      User?             @relation(fields: [user_id], references: [id])
+  author      User?             @relation(fields: [user_id], references: [id], onDelete: Cascade)
   user_id     Int
   MarkdownTag MarkdownTag[]
   MarkdownImg MarkdownImg[]
@@ -82,8 +83,8 @@ model PostingComment {
   id        Int      @id @unique @default(autoincrement())
   text      String
   user_id   Int
-  writer    User?    @relation(fields: [user_id], references: [id])
-  Posting   Posting? @relation(fields: [postingId], references: [id])
+  writer    User?    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  Posting   Posting? @relation(fields: [postingId], references: [id], onDelete: Cascade)
   postingId Int?
 }
 
@@ -91,7 +92,15 @@ model MarkdownComment {
   id         Int       @id @unique @default(autoincrement())
   text       String
   user_id    Int
-  writer     User?     @relation(fields: [user_id], references: [id])
-  Markdown   Markdown? @relation(fields: [markdownId], references: [id])
+  writer     User?     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  Markdown   Markdown? @relation(fields: [markdownId], references: [id], onDelete: Cascade)
   markdownId Int?
+}
+
+model GuestBook {
+  id      Int    @id @unique @default(autoincrement())
+  text    String
+  user_id Int
+  created String
+  writer  User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
 }
