@@ -19,9 +19,9 @@ const checkToken = (acessToken) => {
     if (acessToken) {
       const token = jwt.verify(acessToken, process.env.SECRET_KEY);
       return token;
-    } else return null;
+    } else throw new Error("재로그인이 필요합니다.");
   } catch (err) {
-    return null;
+    throw new Error("재로그인이 필요합니다.");
   }
 };
 
@@ -126,6 +126,20 @@ const typeDefs = gql`
   }
 
   type Mutation {
+    modifyMarkdownComment(id: Int!, text: String!): MarkdownComment
+    deleteMarkdownComment(id: Int!): MarkdownComment
+
+    modifyPostingComment(id: Int!, text: String!): PostingComment
+    deletePostingComment(id: Int!): PostingComment
+
+    deleteGuestBook(id: Int!): GuestBook
+    modifyGuestBook(id: Int!, text: String!): GuestBook
+
+    # modifyMarkdown() : Markdown
+    deleteMarkdown(id: Int): Markdown
+
+    # modifyPosting() : Posting
+
     signup(
       id: Int
       user_name: String!
@@ -266,13 +280,150 @@ const resolvers = {
     },
   },
   Mutation: {
+    deletePosting: async (_parent, { id }, { currentUser }) => {
+      if (!currentUser) {
+        throw new Error("접근 권한이 없습니다.");
+      }
+      const writer = await client.Posting.findUnique({
+        where: { id },
+        include: { author: true },
+      });
+      if (writer.author.id !== currentUser.id) {
+        throw new Error("접근 권한이 없습니다.");
+      } else {
+        return await client.Posting.delete({ where: { id } });
+      }
+    },
+    deleteMarkdown: async (_parent, { id }, { currentUser }) => {
+      if (!currentUser) {
+        throw new Error("접근 권한이 없습니다.");
+      }
+      const writer = await client.Markdown.findUnique({
+        where: { id },
+        include: { author: true },
+      });
+      if (writer.author.id !== currentUser.id) {
+        throw new Error("접근 권한이 없습니다.");
+      } else {
+        return await client.Markdown.delete({ where: { id } });
+      }
+    },
+    modifyPostingComment: async (_parent, { id, text }, { currentUser }) => {
+      if (!currentUser) {
+        throw new Error("접근 권한이 없습니다.");
+      }
+      const writer = await client.PostingComment.findUnique({
+        where: { id },
+        include: {
+          writer: true,
+        },
+      });
+      if (writer.writer.id !== currentUser.id) {
+        throw new Error("접근 권한이 없습니다.");
+      } else {
+        return await client.PostingComment.update({
+          where: { id },
+          data: {
+            text,
+          },
+        });
+      }
+    },
+    deletePostingComment: async (_parent, { id }, { currentUser }) => {
+      if (!currentUser) {
+        throw new Error("접근 권한이 없습니다.");
+      }
+      const writer = await client.PostingComment.findUnique({
+        where: { id },
+        include: {
+          writer: true,
+        },
+      });
+      if (writer.writer.id !== currentUser.id) {
+        throw new Error("접근 권한이 없습니다.");
+      } else {
+        return await client.PostingComment.delete({ where: { id } });
+      }
+    },
+    modifyMarkdownComment: async (_parent, { id, text }, { currentUser }) => {
+      if (!currentUser) {
+        throw new Error("접근 권한이 없습니다.");
+      }
+      const writer = await client.MarkdownComment.findUnique({
+        where: { id },
+        include: {
+          writer: true,
+        },
+      });
+      if (writer.writer.id !== currentUser.id) {
+        throw new Error("접근 권한이 없습니다.");
+      } else
+        return client.MarkdownComment.update({
+          where: { id },
+          data: {
+            text,
+          },
+        });
+    },
+    deleteMarkdownComment: async (_parent, { id }, { currentUser }) => {
+      if (!currentUser) {
+        throw new Error("접근 권한이 없습니다.");
+      }
+      const writer = await client.MarkdownComment.findUnique({
+        where: { id },
+        include: {
+          writer: true,
+        },
+      });
+      if (writer.writer.id !== currentUser.id) {
+        throw new Error("접근 권한이 없습니다.");
+      } else
+        return client.MarkdownComment.delete({
+          where: { id },
+        });
+    },
+    modifyGuestBook: async (_parent, { id, text }, { currentUser }) => {
+      if (!currentUser) {
+        throw new Error("접근 권한이 없습니다.");
+      }
+      const writer = await client.GuestBook.findUnique({
+        where: { id },
+        include: { writer: true },
+      });
+      if (writer.writer.id !== currentUser.id) {
+        throw new Error("접근 권한이 없습니다.");
+      } else {
+        return client.GuestBook.update({
+          where: { id },
+          data: {
+            text,
+          },
+        });
+      }
+    },
+    deleteGuestBook: async (_parent, { id }, { currentUser }) => {
+      if (!currentUser) {
+        throw new Error("접근 권한이 없습니다.");
+      }
+      const writer = await client.GuestBook.findUnique({
+        where: { id },
+        include: {
+          writer: true,
+        },
+      });
+      if (currentUser.id !== writer.writer.id) {
+        throw new Error("접근 권한이 없습니다.");
+      } else {
+        return client.GuestBook.delete({ where: { id } });
+      }
+    },
     deleteUserInfo: async (_parent, { email }, { currentUser }) => {
       if (currentUser.email !== email) {
         throw new Error("입력하신 정보가 맞지 않습니다.");
       }
       if (currentUser.email === email) {
-        console.log(currentUser)
-        await client.User.delete({ where: { id : currentUser.id } });
+        console.log(currentUser);
+        await client.User.delete({ where: { id: currentUser.id } });
       }
     },
     modifyProfileImg: async (_parent, { img }, { currentUser }) => {
@@ -348,7 +499,7 @@ const resolvers = {
         },
         process.env.SECRET_KEY,
         {
-          expiresIn: "2h",
+          expiresIn: "5s",
         }
       );
       const message = "로그인되었습니다.";
