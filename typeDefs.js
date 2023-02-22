@@ -98,9 +98,24 @@ const typeDefs = gql`
     markdownDetail(id: Int!): Markdown
     allGuestBook: [GuestBook]
     myPage: User
+    reAuth: Auth
   }
 
   type Mutation {
+    modifyMarkdownComment(id: Int!, text: String!): MarkdownComment
+    deleteMarkdownComment(id: Int!): MarkdownComment
+
+    modifyPostingComment(id: Int!, text: String!): PostingComment
+    deletePostingComment(id: Int!): PostingComment
+
+    deleteGuestBook(id: Int!): GuestBook
+    modifyGuestBook(id: Int!, text: String!): GuestBook
+
+    # modifyMarkdown() : Markdown
+    deleteMarkdown(id: Int): Markdown
+
+    # modifyPosting() : Posting
+
     signup(
       id: Int
       user_name: String!
@@ -156,4 +171,4 @@ const typeDefs = gql`
   }
 `;
 
-export default typeDefs;
+export default typeDefs
